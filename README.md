@@ -90,8 +90,8 @@ built on the standard library.
 - **FM and Noise don't mix.** FM steps and Noise cannot be
   moved/copied/swapped between an FM track and the Noise track.
   The app rejects this with an error message.
-- **Banks from older firmware ("legacy")** — if a bank was saved by an
-  older version of the FMS firmware (a different internal metadata
+- **Banks from older FMS versions ("legacy")** — if a bank was saved by an
+  older version of the FMS (a different internal metadata
   layout than the current v20), the app detects it and shows it as
   `[LEGACY vX]`. Such a bank cannot be edited, nor can patterns be
   copied out of it (to avoid misinterpreting an unknown old layout) —
@@ -102,8 +102,4 @@ built on the standard library.
   source) — even a Move from source to composition only changes the
   source in the running app's memory.
 - **Save format variants.** Both the 128 KB Flash build and the 32 KB
-  SRAM build are supported as either panel's file. An unused bank can
-  be marked in the directory either as `sectorStart = 0` or as
-  `sectorStart = 0xFF` (raw erased memory) depending on which build /
-  firmware version wrote the file — both are recognized as "bank does
-  not exist".
+  SRAM build are supported as either panel's file.

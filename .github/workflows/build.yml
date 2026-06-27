@@ -1,0 +1,35 @@
+name: Build Python App
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Stáhnout kód
+      uses: actions/checkout@v4
+
+    - name: Nastavit Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Nainstalovat knihovny
+      run: |
+        pip install pyinstaller
+
+    - name: Build aplikace
+      run: |
+        pyinstaller --onefile --windowed fmssm_gui.py
+
+    - name: Uložit výsledek
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-${{ matrix.os }}
+        path: dist/*

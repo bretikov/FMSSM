@@ -1,7 +1,7 @@
 # FMSSM (FMS Save Manager)
 
-A desktop application (Python + Tkinter) for managing save files of the
-GBA groovebox **FMS** by fors.fm
+A desktop app (Python + Tkinter) for managing save files 
+for the GBA Groovebox FMS by fors.fm
 
 The app has **two panels**:
 

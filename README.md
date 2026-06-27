@@ -66,8 +66,7 @@ built on the standard library.
    written to disk automatically.
 4. In either panel, click a bank in the list on the left — the
    5-track (FM 1–4, Noise) × 16-slot grid for that bank shows up. Slot
-   columns are numbered in **hexadecimal** (`0 1 2 3 4 5 6 7 8 9 A B C
-   D E F`) to match a single-digit-per-slot layout.
+   columns are numbered in **hexadecimal** to match a single-digit-per-slot.
 5. **Select a source and a destination** (across either panel):
    - Click a cell (top or bottom) → it becomes the source (orange).
    - Click another cell (in either panel) → it becomes the destination

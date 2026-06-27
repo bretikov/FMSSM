@@ -1,8 +1,6 @@
+name: Build
 
 on:
-  push:
-    tags:
-      - 'v*'
   release:
     types: [published]
 
@@ -18,56 +16,47 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
+      # 📥 stáhne kód
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 🐍 Python
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      # 📦 závislosti
+      - name: Install PyInstaller
         run: pip install pyinstaller
 
-      # ✅ Windows build
-      - name: Build Windows
+      # 🪟 Windows build
+      - name: Build Windows EXE
         if: runner.os == 'Windows'
         run: pyinstaller --onefile --windowed --name fmssm_gui fmssm_gui.py
 
-      # ✅ macOS build (.app)
-      - name: Build macOS
+      # 🍎 macOS build (.app)
+      - name: Build macOS APP
         if: runner.os == 'macOS'
         run: pyinstaller --windowed --name fmssm_gui fmssm_gui.py
 
-      # ✅ Zabal macOS .app do ZIP (důležité!)
+      # 🍎 zip macOS app
       - name: Zip macOS app
         if: runner.os == 'macOS'
         run: |
           cd dist
           zip -r fmssm_gui-mac.zip fmssm_gui.app
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-${{ matrix.os }}
-          path: |
-            dist/*.exe
-            dist/*.zip
+      # 🔍 DEBUG – uvidíš co vzniklo
+      - name: List dist
+        run: ls -R dist
 
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-
-      - name: Create Release and upload files
+      # 📤 upload přímo do RELEASE
+      - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            build-windows-latest/*
-            build-macos-latest/*
+            dist/*.exe
+            dist/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-``

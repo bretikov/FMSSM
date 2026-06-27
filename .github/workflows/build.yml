@@ -16,7 +16,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      # 📥 stáhne kód
+      # 📥 repo
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -26,7 +26,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      # 📦 závislosti
+      # 📦 PyInstaller
       - name: Install PyInstaller
         run: pip install pyinstaller
 
@@ -35,28 +35,36 @@ jobs:
         if: runner.os == 'Windows'
         run: pyinstaller --onefile --windowed --name fmssm_gui fmssm_gui.py
 
+      # 🪟 ZIP Windows EXE
+      - name: Zip Windows EXE
+        if: runner.os == 'Windows'
+        run: |
+          mkdir output
+          copy dist\fmssm_gui.exe output\fmssm_gui.exe
+          powershell Compress-Archive -Path output\* -DestinationPath dist\fmssm_gui-win.zip
+
       # 🍎 macOS build (.app)
       - name: Build macOS APP
         if: runner.os == 'macOS'
         run: pyinstaller --windowed --name fmssm_gui fmssm_gui.py
 
-      # 🍎 zip macOS app
+      # 🍎 ZIP macOS app
       - name: Zip macOS app
         if: runner.os == 'macOS'
         run: |
           cd dist
           zip -r fmssm_gui-mac.zip fmssm_gui.app
 
-      # 🔍 DEBUG – uvidíš co vzniklo
+      # 🔍 debug (vidíš co vzniklo)
       - name: List dist
         run: ls -R dist
 
-      # 📤 upload přímo do RELEASE
+      # 📤 upload do release
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/*.exe
             dist/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+``

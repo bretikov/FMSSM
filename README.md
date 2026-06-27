@@ -3,7 +3,7 @@
 Python script for managing save files of the
 GBA groovebox **FMS** by fors.fm
 
-The app has **two panels**:
+The script has **two panels**:
 
 - **SOURCE** (top) — open an existing `.sav` file here. It acts as a
   "library" of patterns you pick material from.
@@ -44,26 +44,38 @@ built on the standard library.
   "Running it" above) - it has no logic of its own for parsing or
   writing the save format, it only imports it from that module.
 
-## How to use the app
+## How to use
 
 1. **File → Open source file...** — pick your existing `.sav`. It shows
    up in the top panel.
-2. The bottom panel ("New Composition") is ready as an empty save right
-   from the start — no need to open anything if you want to build from
-   scratch. (If you'd rather edit an existing file as the composition,
-   use **File → Open composition from file...** instead.)
-3. Both panels have their own **Save this file** button below the bank
-   list (also available as **File → Save source file** /
-   **Save composition**). Edits in either panel — renaming a bank,
-   moving/copying a pattern into or out of it — only live in memory
-   until you explicitly save that panel; nothing is written to disk
-   automatically.
+2. The bottom panel ("New Composition") is ready as an empty Flash
+   (128 KB) save right from the start — no need to open anything if
+   you want to build from scratch. To start a SRAM (32 KB) composition
+   instead, or to discard the current one and start over, use
+   **File → New empty composition**; a small dialog lets you pick
+   Flash or SRAM. (If you'd rather edit an existing file as the
+   composition, use **File → Open composition from file...** instead —
+   its build is read from the file itself.)
+3. Each panel's bank list has **Rename bank**, **Clear bank**, and
+   **Save this file** buttons. **Clear bank** frees the selected bank
+   completely (patterns, name, everything) so it becomes empty, as if
+   it had never been saved — it asks for confirmation first and shows
+   how many patterns are in it. Edits in either panel — renaming or
+   clearing a bank, moving/copying a pattern into or out of it — only
+   live in memory until you explicitly save that panel; nothing is
+   written to disk automatically.
 4. In either panel, click a bank in the list on the left — the
-   5-track (FM 1–4, Noise) × 16-slot grid for that bank shows up.
+   5-track (FM 1–4, Noise) × 16-slot grid for that bank shows up. Slot
+   columns are numbered in **hexadecimal** (`0 1 2 3 4 5 6 7 8 9 A B C
+   D E F`) to match a single-digit-per-slot layout.
 5. **Select a source and a destination** (across either panel):
    - Click a cell (top or bottom) → it becomes the source (orange).
    - Click another cell (in either panel) → it becomes the destination
      (green).
+   - Click a **column header** (the hex slot number) instead of a cell
+     to select all 5 tracks of that slot at once — useful for
+     reordering or copying an entire step across all tracks in one go.
+     You can't mix a single-cell selection with a whole-column one.
 6. Use the buttons in the middle:
    - **Move →** — the pattern (and its settings: length, rate, echo,
      transpose, mod, direction...) moves to the destination, the

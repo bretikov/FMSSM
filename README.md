@@ -14,39 +14,6 @@ The script has **two panels**:
 
 <img width="1087" height="746" alt="FMSSM" src="https://github.com/user-attachments/assets/4784d731-9260-455d-aa6b-952d2e47aa41" />
 
-
-## Running it
-
-You need Python 3.8+ with the `tkinter` module.
-
-- **Windows / macOS**: tkinter ships with the standard Python
-  installation, nothing extra to install.
-
-**Important: keep both `.py` files in the same folder.** `fmssm_gui.py`
-imports `fmssm_format.py` as a local module - if it isn't sitting right
-next to `fmssm_gui.py`, the app will fail immediately with
-`ModuleNotFoundError: No module named 'fmssm_format'`. Download/copy both
-files into one directory before running anything (`README.md` itself
-is just documentation and isn't required at runtime).
-
-Run:
-
-```bash
-python3 fmssm_gui.py
-```
-
-No other dependencies (no `pip install`) are required — everything is
-built on the standard library.
-
-## Files
-
-- `fmssm_format.py` — pure library for reading/writing the format (no GUI).
-  Can also be used standalone, e.g. for scripting/batch edits.
-- `fmssm_gui.py` — Tkinter app built on top of the library (two-panel UI).
-  **Requires `fmssm_format.py` to be present in the same folder** (see
-  "Running it" above) - it has no logic of its own for parsing or
-  writing the save format, it only imports it from that module.
-
 ## How to use
 
 1. **File → Open source file...** — pick your existing `.sav`. It shows

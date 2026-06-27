@@ -113,6 +113,35 @@ class SlotCell(tk.Frame):
         self.label.config(bg=bg, text=text)
 
 
+class ColumnHeaderCell(tk.Label):
+    """Clickable column header showing a slot's hex index. Clicking it
+    selects all 5 tracks of that slot at once (a "column" selection),
+    enabling Move/Copy/Swap/Clear across the whole column in a single
+    action. Unlike SlotCell, this only supports click - no drag&drop,
+    since dragging an entire column is a separate, more ambiguous
+    gesture that isn't supported."""
+
+    def __init__(self, parent, app, panel, slot, **kwargs):
+        super().__init__(parent, text=slot_hex(slot), width=4,
+                          bg=COLOR_PANEL_BG, fg="#888888", cursor="hand2", **kwargs)
+        self.app = app
+        self.panel = panel
+        self.slot = slot
+        self.bind("<Button-1>", self._on_click)
+
+    def _on_click(self, event):
+        self.app.on_column_header_click(self.panel, self.slot)
+
+    def refresh(self, is_selected_src, is_selected_dst):
+        if is_selected_src:
+            bg = COLOR_SELECTED_SRC
+        elif is_selected_dst:
+            bg = COLOR_SELECTED_DST
+        else:
+            bg = COLOR_PANEL_BG
+        self.config(bg=bg)
+
+
 class BankGrid(tk.Frame):
     """Grid of 5 tracks x 16 slots for one bank in one panel."""
 
@@ -121,10 +150,13 @@ class BankGrid(tk.Frame):
         self.app = app
         self.panel = panel
         self.cells = {}  # (track, slot) -> SlotCell
+        self.headers = {}  # slot -> ColumnHeaderCell
 
         tk.Label(self, text="", width=6, bg=COLOR_PANEL_BG).grid(row=0, column=0)
         for s in range(N_SLOTS):
-            tk.Label(self, text=slot_hex(s), width=4, bg=COLOR_PANEL_BG, fg="#888888").grid(row=0, column=s+1)
+            header = ColumnHeaderCell(self, app, panel, s)
+            header.grid(row=0, column=s+1)
+            self.headers[s] = header
 
         for t in range(5):
             tk.Label(self, text=TRACK_LABELS[t], width=6, anchor="w",
@@ -135,9 +167,11 @@ class BankGrid(tk.Frame):
                 self.cells[(t, s)] = cell
 
     def refresh(self, bank, src, dst):
+        # src/dst are (track, slot) tuples for a single-cell selection,
+        # or (None, slot) for a whole-column selection.
         for (t, s), cell in self.cells.items():
-            is_src = (src == (t, s))
-            is_dst = (dst == (t, s))
+            is_src = (src == (t, s)) or (src == (None, s))
+            is_dst = (dst == (t, s)) or (dst == (None, s))
             if bank is None or bank.legacy:
                 cell.refresh(None, None, is_src, is_dst)
                 continue
@@ -149,6 +183,11 @@ class BankGrid(tk.Frame):
             else:
                 length = bank.ns_pat_length[s]
             cell.refresh(pattern, length, is_src, is_dst)
+
+        for s, header in self.headers.items():
+            is_src = (src == (None, s))
+            is_dst = (dst == (None, s))
+            header.refresh(is_src, is_dst)
 
 
 class Panel:
@@ -183,6 +222,8 @@ class Panel:
         self.bank_listbox.bind("<<ListboxSelect>>", lambda e: self.app.on_bank_select(self))
         tk.Button(left, text="Rename bank",
                   command=lambda: self.app.rename_bank(self)).pack(fill="x", pady=2)
+        tk.Button(left, text="Clear bank",
+                  command=lambda: self.app.clear_bank(self)).pack(fill="x", pady=2)
         tk.Button(left, text="Save this file",
                   command=lambda: self.app.save_panel_file(self)).pack(fill="x", pady=2)
 
@@ -199,6 +240,8 @@ class Panel:
     def current_bank(self) -> Optional[Bank]:
         if self.savefile is None or self.selected_bank_idx is None:
             return None
+        if self.selected_bank_idx >= self.savefile.max_banks():
+            return None
         return self.savefile.banks[self.selected_bank_idx]
 
     def refresh_bank_list(self):
@@ -206,7 +249,9 @@ class Panel:
         if self.savefile is None:
             self.info_label.config(text="(no file)")
             return
-        for i, bank in enumerate(self.savefile.banks):
+        max_banks = self.savefile.max_banks()
+        for i in range(max_banks):
+            bank = self.savefile.banks[i]
             name = self.savefile.bank_names[i]
             if bank is None:
                 label = f"{i}: {name}  (empty)"
@@ -216,13 +261,25 @@ class Panel:
                 n = sum(1 for t in range(5) for s in range(16) if bank.patterns[t][s] is not None)
                 label = f"{i}: {name}  ({n} patterns, {bank.needed_sectors()} sect.)"
             self.bank_listbox.insert(tk.END, label)
-        if self.selected_bank_idx is not None:
+        if self.selected_bank_idx is not None and self.selected_bank_idx < max_banks:
             self.bank_listbox.selection_set(self.selected_bank_idx)
+
+        # Banks beyond max_banks() exist in the file format's directory
+        # but aren't reachable through the real FMS firmware's own UI
+        # on this build (SRAM only shows banks 0-1). Normally these are
+        # empty and we just don't list them - but if one unexpectedly
+        # has data (e.g. a file produced by another tool), warn rather
+        # than silently hiding the data.
+        unreachable_with_data = [i for i in range(max_banks, 8) if self.savefile.banks[i] is not None]
 
         used = sum(b.needed_sectors() for b in self.savefile.banks if b is not None)
         total = self.savefile.data_sectors()
         kind = "Flash 128KB" if self.savefile.is_flash else "SRAM 32KB"
-        self.info_label.config(text=f"v{self.savefile.version} | {kind} | sectors {used}/{total}")
+        info_text = f"v{self.savefile.version} | {kind} | sectors {used}/{total}"
+        if unreachable_with_data:
+            bank_list = ", ".join(str(i) for i in unreachable_with_data)
+            info_text += f" | WARNING: bank(s) {bank_list} have data but aren't usable on this build!"
+        self.info_label.config(text=info_text)
 
     def refresh_grid(self):
         bank = self.current_bank()
@@ -253,6 +310,48 @@ class Panel:
         src_cell = (src[1], src[2]) if src and src[0] is self else None
         dst_cell = (dst[1], dst[2]) if dst and dst[0] is self else None
         self.grid.refresh(bank, src_cell, dst_cell)
+
+
+def ask_save_type(root) -> "bool | None":
+    """Shows a small modal dialog letting the user pick the save build
+    for a new empty composition. Returns True for Flash (128 KB),
+    False for SRAM (32 KB), or None if the dialog was cancelled."""
+    result = {"value": None}
+
+    dialog = tk.Toplevel(root)
+    dialog.title("New empty composition")
+    dialog.configure(bg=COLOR_PANEL_BG)
+    dialog.resizable(False, False)
+    dialog.transient(root)
+    dialog.grab_set()
+
+    tk.Label(dialog, text="Which save build should the new composition target?",
+              bg=COLOR_PANEL_BG, fg=COLOR_TEXT, padx=16, pady=12).pack()
+
+    btn_frame = tk.Frame(dialog, bg=COLOR_PANEL_BG)
+    btn_frame.pack(padx=16, pady=(0, 16))
+
+    def choose(value):
+        result["value"] = value
+        dialog.destroy()
+
+    tk.Button(btn_frame, text="Flash (128 KB, 8 banks, 31 sectors)",
+              width=32, command=lambda: choose(True)).pack(pady=3)
+    tk.Button(btn_frame, text="SRAM (32 KB, 8 banks, 7 sectors)",
+              width=32, command=lambda: choose(False)).pack(pady=3)
+    tk.Button(btn_frame, text="Cancel", width=32,
+              command=lambda: choose(None)).pack(pady=(8, 0))
+
+    dialog.protocol("WM_DELETE_WINDOW", lambda: choose(None))
+
+    # center over the main window, then block until closed
+    dialog.update_idletasks()
+    x = root.winfo_x() + (root.winfo_width() - dialog.winfo_width()) // 2
+    y = root.winfo_y() + (root.winfo_height() - dialog.winfo_height()) // 2
+    dialog.geometry(f"+{x}+{y}")
+
+    root.wait_window(dialog)
+    return result["value"]
 
 
 class FMSManagerApp:
@@ -326,12 +425,6 @@ class FMSManagerApp:
         tk.Button(btns, text="Swap", command=self.do_swap).pack(side="left", padx=3)
         tk.Button(btns, text="Clear source", command=self.do_clear).pack(side="left", padx=3)
         tk.Button(btns, text="Clear selection", command=self.clear_selection).pack(side="left", padx=3)
-
-        help_text = ("Click a cell at the top = source, a cell at the bottom = destination (or the "
-                     "other way around), then press Move/Copy/Swap. Dragging between cells = direct "
-                     "Move. Swap only works within the same panel. FM and Noise tracks cannot be mixed.")
-        tk.Label(mid, text=help_text, bg="#141414", fg="#888888", wraplength=1140,
-                 justify="left", font=("TkDefaultFont", 8)).pack(side="bottom", fill="x", pady=(4, 0))
 
         # --- bottom panel: NEW COMPOSITION ---
         self.dest_panel = Panel(self, main, "dest", "NEW COMPOSITION (destination file)", SaveFile.create_empty())
@@ -412,7 +505,10 @@ class FMSManagerApp:
             if not messagebox.askyesno("New composition",
                                         "The current composition has unsaved changes. Discard and start over?"):
                 return
-        self.dest_panel.savefile = SaveFile.create_empty()
+        is_flash = ask_save_type(self.root)
+        if is_flash is None:
+            return  # cancelled
+        self.dest_panel.savefile = SaveFile.create_empty(is_flash=is_flash)
         self.dest_panel.path = None
         self.dest_panel.selected_bank_idx = None
         self.dirty_dest = False
@@ -420,7 +516,8 @@ class FMSManagerApp:
         self.dest_panel.refresh_bank_list()
         self.dest_panel.refresh_grid()
         self._update_title()
-        self.set_status("New empty composition created.")
+        kind = "Flash 128KB" if is_flash else "SRAM 32KB"
+        self.set_status(f"New empty composition created ({kind}).")
 
     def open_dest_file(self):
         path = filedialog.askopenfilename(
@@ -518,6 +615,42 @@ class FMSManagerApp:
         self.mark_dirty(panel)
         panel.refresh_bank_list()
 
+    def clear_bank(self, panel: "Panel"):
+        """Completely frees the selected bank - it becomes 'empty' in
+        the directory, exactly as if it had never been saved. This also
+        resets its name to the uninitialized state, not just its
+        patterns."""
+        if panel.savefile is None or panel.selected_bank_idx is None:
+            return
+        idx = panel.selected_bank_idx
+        bank = panel.savefile.banks[idx]
+        if bank is None:
+            messagebox.showinfo("Info", "This bank is already empty.")
+            return
+
+        if bank.legacy:
+            warning = (f"Bank {idx} was saved by older firmware (format v{bank.legacy_version}) "
+                        f"and its contents cannot be inspected by this tool. ")
+        else:
+            n = sum(1 for t in range(5) for s in range(16) if bank.patterns[t][s] is not None)
+            warning = f"Bank {idx} contains {n} pattern(s). "
+
+        if not messagebox.askyesno(
+            "Clear bank",
+            warning + f"Really clear it completely? It will become empty, as if it had "
+                      f"never been saved (this also clears its name)."
+        ):
+            return
+
+        panel.savefile.banks[idx] = None
+        panel.savefile.bank_names[idx] = '----'
+        panel.savefile.bank_name_raw[idx] = b'\xff\xff\xff\xff'
+        self.mark_dirty(panel)
+        self.set_status(f"Cleared: [{panel.panel_id}] bank {idx} (now empty)")
+        panel.selected_bank_idx = None
+        panel.refresh_bank_list()
+        self.clear_selection()
+
     def save_panel_file(self, panel: "Panel"):
         """Saves whichever panel's button was clicked - dispatches to
         the source or destination save logic depending on panel_id."""
@@ -560,6 +693,38 @@ class FMSManagerApp:
             self.dst = None
             self.set_status(f"Source selected: [{panel.panel_id}] bank {panel.selected_bank_idx}, "
                              f"{TRACK_LABELS[track]}, slot {slot_hex(slot)}")
+
+        self._update_selection_labels()
+        self.source_panel.refresh_grid()
+        self.dest_panel.refresh_grid()
+
+    def on_column_header_click(self, panel: "Panel", slot):
+        """Clicking a column header selects all 5 tracks of that slot
+        at once - the resulting selection is (panel, None, slot), where
+        track=None is the marker for "whole column"."""
+        bank = panel.current_bank()
+        if panel.selected_bank_idx is None:
+            self.set_status("Select a bank in this panel first.")
+            return
+        if bank is not None and bank.legacy:
+            self.set_status("A legacy bank cannot be edited at the pattern level.")
+            return
+
+        target = (panel, None, slot)
+        if self.src is None:
+            self.src = target
+            self.set_status(f"Source column selected: [{panel.panel_id}] bank "
+                             f"{panel.selected_bank_idx}, slot {slot_hex(slot)} (all 5 tracks)")
+        elif self.dst is None and target != self.src:
+            self.dst = target
+            self.set_status(f"Destination column selected: [{panel.panel_id}] bank "
+                             f"{panel.selected_bank_idx}, slot {slot_hex(slot)} (all 5 tracks). "
+                             f"Press Move/Copy/Swap.")
+        else:
+            self.src = target
+            self.dst = None
+            self.set_status(f"Source column selected: [{panel.panel_id}] bank "
+                             f"{panel.selected_bank_idx}, slot {slot_hex(slot)} (all 5 tracks)")
 
         self._update_selection_labels()
         self.source_panel.refresh_grid()
@@ -630,7 +795,8 @@ class FMSManagerApp:
                 return "-"
             p, t, s = sel
             bidx = p.selected_bank_idx
-            return f"[{p.panel_id}] bank {bidx}, {TRACK_LABELS[t]}, slot {slot_hex(s)}"
+            track_part = "all 5 tracks" if t is None else TRACK_LABELS[t]
+            return f"[{p.panel_id}] bank {bidx}, {track_part}, slot {slot_hex(s)}"
         self.src_label.config(text=f"Source selection: {fmt(self.src)}")
         self.dst_label.config(text=f"Destination selection: {fmt(self.dst)}")
 
@@ -647,18 +813,27 @@ class FMSManagerApp:
 
     def _validate_selection(self):
         if self.src is None or self.dst is None:
-            messagebox.showinfo("Info", "First select both a source and a destination cell "
-                                         "(in either panel).")
+            messagebox.showinfo("Info", "First select both a source and a destination "
+                                         "(a single cell, or a whole column by clicking its "
+                                         "header) in either panel.")
             return False
         src_track = self.src[1]
         dst_track = self.dst[1]
-        src_is_fm = src_track in (0, 1, 2, 3)
-        dst_is_fm = dst_track in (0, 1, 2, 3)
-        if src_is_fm != dst_is_fm:
+        src_is_column = src_track is None
+        dst_is_column = dst_track is None
+        if src_is_column != dst_is_column:
             messagebox.showerror("Cannot perform action",
-                                  "Cannot move/copy/swap between an FM track and the Noise track "
-                                  "(they use a different step format).")
+                                  "Cannot mix a single-cell selection with a whole-column "
+                                  "selection. Select either two cells or two columns.")
             return False
+        if not src_is_column:
+            src_is_fm = src_track in (0, 1, 2, 3)
+            dst_is_fm = dst_track in (0, 1, 2, 3)
+            if src_is_fm != dst_is_fm:
+                messagebox.showerror("Cannot perform action",
+                                      "Cannot move/copy/swap between an FM track and the Noise "
+                                      "track (they use a different step format).")
+                return False
         return True
 
     def _execute_move(self, src, dst):
@@ -704,17 +879,57 @@ class FMSManagerApp:
         src_panel.refresh_grid()
         dst_panel.refresh_grid()
 
+    def _execute_move_column(self, src, dst):
+        """Moves all 5 tracks (FM 1-4 + Noise) of one column to another,
+        track-for-track (track 0 -> track 0, etc). Used for whole-column
+        selections (track is None in both src and dst)."""
+        src_panel, _, src_slot = src
+        dst_panel, _, dst_slot = dst
+        if src_panel.savefile is None or src_panel.selected_bank_idx is None:
+            messagebox.showerror("Error", "The source panel has no bank selected.")
+            return
+        if dst_panel.selected_bank_idx is None:
+            messagebox.showerror("Error", "The destination panel has no bank selected.")
+            return
+
+        try:
+            for track in range(5):
+                if src_panel is dst_panel:
+                    src_panel.savefile.move_pattern_between_banks(
+                        src_panel.selected_bank_idx, track, src_slot,
+                        dst_panel.selected_bank_idx, track, dst_slot,
+                    )
+                else:
+                    move_pattern_across_savefiles(
+                        src_panel.savefile, src_panel.selected_bank_idx, track, src_slot,
+                        dst_panel.savefile, dst_panel.selected_bank_idx, track, dst_slot,
+                    )
+        except Exception as e:
+            messagebox.showerror("Error during move", str(e))
+            return
+
+        self.mark_dirty(src_panel)
+        self.mark_dirty(dst_panel)
+        self.set_status(f"Moved column: [{src_panel.panel_id}] bank {src_panel.selected_bank_idx} "
+                         f"slot {slot_hex(src_slot)} -> [{dst_panel.panel_id}] bank "
+                         f"{dst_panel.selected_bank_idx} slot {slot_hex(dst_slot)} (all 5 tracks)")
+        src_panel.refresh_bank_list()
+        dst_panel.refresh_bank_list()
+        src_panel.refresh_grid()
+        dst_panel.refresh_grid()
+
     def do_move(self):
         if not self._validate_selection():
             return
-        self._execute_move(self.src, self.dst)
+        if self.src[1] is None:
+            self._execute_move_column(self.src, self.dst)
+        else:
+            self._execute_move(self.src, self.dst)
         self.clear_selection()
 
-    def do_copy(self):
-        if not self._validate_selection():
-            return
-        src_panel, src_track, src_slot = self.src
-        dst_panel, dst_track, dst_slot = self.dst
+    def _execute_copy(self, src, dst):
+        src_panel, src_track, src_slot = src
+        dst_panel, dst_track, dst_slot = dst
 
         if src_panel.savefile is None or src_panel.selected_bank_idx is None:
             messagebox.showerror("Error", "The source panel has no bank selected.")
@@ -753,6 +968,58 @@ class FMSManagerApp:
         dst_panel.refresh_bank_list()
         src_panel.refresh_grid()
         dst_panel.refresh_grid()
+
+    def _execute_copy_column(self, src, dst):
+        """Copies all 5 tracks (FM 1-4 + Noise) of one column to
+        another, track-for-track. Used for whole-column selections."""
+        src_panel, _, src_slot = src
+        dst_panel, _, dst_slot = dst
+
+        if src_panel.savefile is None or src_panel.selected_bank_idx is None:
+            messagebox.showerror("Error", "The source panel has no bank selected.")
+            return
+        if dst_panel.selected_bank_idx is None:
+            messagebox.showerror("Error", "The destination panel has no bank selected.")
+            return
+
+        try:
+            for track in range(5):
+                if src_panel is dst_panel:
+                    src_bank = src_panel.savefile.banks[src_panel.selected_bank_idx]
+                    dst_bank = dst_panel.savefile.ensure_bank(dst_panel.selected_bank_idx)
+                    if src_bank is None:
+                        raise ValueError("The source bank must exist.")
+                    if src_panel.selected_bank_idx == dst_panel.selected_bank_idx:
+                        src_bank.copy_pattern(track, src_slot, track, dst_slot)
+                    else:
+                        settings = src_bank._extract_slot_settings(track, src_slot)
+                        pattern = src_bank.patterns[track][src_slot]
+                        dst_bank._apply_slot_settings(track, dst_slot, settings)
+                        dst_bank.patterns[track][dst_slot] = pattern.copy() if pattern is not None else None
+                else:
+                    copy_pattern_across_savefiles(
+                        src_panel.savefile, src_panel.selected_bank_idx, track, src_slot,
+                        dst_panel.savefile, dst_panel.selected_bank_idx, track, dst_slot,
+                    )
+        except Exception as e:
+            messagebox.showerror("Error during copy", str(e))
+            return
+
+        self.mark_dirty(dst_panel)
+        self.set_status(f"Copied column: [{src_panel.panel_id}] bank {src_panel.selected_bank_idx} "
+                         f"slot {slot_hex(src_slot)} -> [{dst_panel.panel_id}] bank "
+                         f"{dst_panel.selected_bank_idx} slot {slot_hex(dst_slot)} (all 5 tracks)")
+        dst_panel.refresh_bank_list()
+        src_panel.refresh_grid()
+        dst_panel.refresh_grid()
+
+    def do_copy(self):
+        if not self._validate_selection():
+            return
+        if self.src[1] is None:
+            self._execute_copy_column(self.src, self.dst)
+        else:
+            self._execute_copy(self.src, self.dst)
         self.clear_selection()
 
     def do_swap(self):
@@ -773,36 +1040,61 @@ class FMSManagerApp:
         bank = src_panel.savefile.banks[src_panel.selected_bank_idx]
         if bank is None:
             return
+
+        is_column = src_track is None
         try:
-            bank.swap_pattern(src_track, src_slot, dst_track, dst_slot)
+            if is_column:
+                for track in range(5):
+                    bank.swap_pattern(track, src_slot, track, dst_slot)
+            else:
+                bank.swap_pattern(src_track, src_slot, dst_track, dst_slot)
         except Exception as e:
             messagebox.showerror("Error during swap", str(e))
             return
 
         self.mark_dirty(src_panel)
-        self.set_status(f"Swapped: {TRACK_LABELS[src_track]} slot {slot_hex(src_slot)} <-> "
-                         f"{TRACK_LABELS[dst_track]} slot {slot_hex(dst_slot)} "
-                         f"([{src_panel.panel_id}] bank {src_panel.selected_bank_idx})")
+        if is_column:
+            self.set_status(f"Swapped column: slot {slot_hex(src_slot)} <-> "
+                             f"slot {slot_hex(dst_slot)} (all 5 tracks, "
+                             f"[{src_panel.panel_id}] bank {src_panel.selected_bank_idx})")
+        else:
+            self.set_status(f"Swapped: {TRACK_LABELS[src_track]} slot {slot_hex(src_slot)} <-> "
+                             f"{TRACK_LABELS[dst_track]} slot {slot_hex(dst_slot)} "
+                             f"([{src_panel.panel_id}] bank {src_panel.selected_bank_idx})")
         src_panel.refresh_bank_list()
         src_panel.refresh_grid()
         self.clear_selection()
 
     def do_clear(self):
         if self.src is None:
-            messagebox.showinfo("Info", "First select the pattern you want to clear (as the source).")
+            messagebox.showinfo("Info", "First select the pattern (or column) you want to clear "
+                                         "(as the source).")
             return
         panel, track, slot = self.src
         bank = panel.current_bank()
         if bank is None or bank.legacy:
             return
-        if not messagebox.askyesno("Clear pattern",
-                                    f"Really clear the pattern in [{panel.panel_id}] bank "
-                                    f"{panel.selected_bank_idx}, {TRACK_LABELS[track]}, slot {slot_hex(slot)}?"):
-            return
-        bank.clear_pattern(track, slot)
-        self.mark_dirty(panel)
-        self.set_status(f"Cleared: [{panel.panel_id}] bank {panel.selected_bank_idx} "
-                         f"{TRACK_LABELS[track]} slot {slot_hex(slot)}")
+
+        if track is None:
+            if not messagebox.askyesno("Clear column",
+                                        f"Really clear all 5 tracks of slot {slot_hex(slot)} in "
+                                        f"[{panel.panel_id}] bank {panel.selected_bank_idx}?"):
+                return
+            for t in range(5):
+                bank.clear_pattern(t, slot)
+            self.mark_dirty(panel)
+            self.set_status(f"Cleared column: [{panel.panel_id}] bank {panel.selected_bank_idx} "
+                             f"slot {slot_hex(slot)} (all 5 tracks)")
+        else:
+            if not messagebox.askyesno("Clear pattern",
+                                        f"Really clear the pattern in [{panel.panel_id}] bank "
+                                        f"{panel.selected_bank_idx}, {TRACK_LABELS[track]}, slot {slot_hex(slot)}?"):
+                return
+            bank.clear_pattern(track, slot)
+            self.mark_dirty(panel)
+            self.set_status(f"Cleared: [{panel.panel_id}] bank {panel.selected_bank_idx} "
+                             f"{TRACK_LABELS[track]} slot {slot_hex(slot)}")
+
         panel.refresh_bank_list()
         self.clear_selection()
 

@@ -37,6 +37,15 @@ MAX_BANK_SECTORS = 5
 DATA_SECTORS_FLASH = 31
 DATA_SECTORS_SRAM = 7
 
+# The save format's directory always has 8 bank slots regardless of
+# build (see bankDir[8] in the spec). However, the real FMS firmware's
+# UI on the SRAM build only ever shows/uses the first 2 of those 8
+# slots (banks 0 and 1) - this isn't a file-format limitation, it's an
+# SRAM-firmware UI restriction we mirror here so files created by this
+# tool stay usable on real SRAM hardware.
+SRAM_MAX_BANKS = 2
+FLASH_MAX_BANKS = 8
+
 CURRENT_FORMAT_VERSION = 20
 BANK_VERSION_SENTINEL = 0x1  # low nibble meaning "real version is in extVersion"
 
@@ -877,6 +886,22 @@ class SaveFile:
     def data_sectors(self) -> int:
         return DATA_SECTORS_FLASH if self.is_flash else DATA_SECTORS_SRAM
 
+    def max_banks(self) -> int:
+        """Number of bank slots actually usable on this build. The file
+        format's directory always has 8 slots, but the real FMS
+        firmware on the SRAM build only shows/uses the first 2 -
+        banks 2-7 exist in the directory layout but are not reachable
+        through the device's own UI, so this tool mirrors that limit."""
+        return FLASH_MAX_BANKS if self.is_flash else SRAM_MAX_BANKS
+
+    def _check_bank_idx_usable(self, bank_idx: int):
+        if bank_idx >= self.max_banks():
+            kind = "Flash" if self.is_flash else "SRAM"
+            raise ValueError(
+                f"Bank {bank_idx} is not usable on the {kind} build "
+                f"(only banks 0-{self.max_banks()-1} are supported)."
+            )
+
     def total_size(self) -> int:
         return 128*1024 if self.is_flash else 32*1024
 
@@ -997,6 +1022,8 @@ class SaveFile:
 
     def move_pattern_between_banks(self, src_bank_idx: int, src_track: int, src_slot: int,
                                      dst_bank_idx: int, dst_track: int, dst_slot: int):
+        self._check_bank_idx_usable(src_bank_idx)
+        self._check_bank_idx_usable(dst_bank_idx)
         src_bank = self.banks[src_bank_idx]
         dst_bank = self.banks[dst_bank_idx]
         if src_bank is None or dst_bank is None:
@@ -1018,7 +1045,10 @@ class SaveFile:
 
     def ensure_bank(self, bank_idx: int) -> "Bank":
         """Returns the bank at the given index; if it doesn't exist yet
-        (None), creates a new empty bank and stores it in that slot."""
+        (None), creates a new empty bank and stores it in that slot.
+        Raises ValueError if bank_idx is outside the range usable on
+        this build (see max_banks())."""
+        self._check_bank_idx_usable(bank_idx)
         if self.banks[bank_idx] is None:
             self.banks[bank_idx] = Bank.create_empty(bank_idx)
         return self.banks[bank_idx]

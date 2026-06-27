@@ -1,9 +1,9 @@
 # FMSSM (FMS Save Manager)
 
-Python script for managing save files of the
+A desktop application (Python + Tkinter) for managing save files of the
 GBA groovebox **FMS** by fors.fm
 
-The script has **two panels**:
+The app has **two panels**:
 
 - **SOURCE** (top) — open an existing `.sav` file here. It acts as a
   "library" of patterns you pick material from.

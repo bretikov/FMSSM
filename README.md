@@ -12,6 +12,9 @@ The script has **two panels**:
   copy patterns here from the source and assemble a brand-new layout,
   which you then save as a new `.sav`.
 
+<img width="1087" height="746" alt="FMSSM" src="https://github.com/user-attachments/assets/4784d731-9260-455d-aa6b-952d2e47aa41" />
+
+
 ## Running it
 
 You need Python 3.8+ with the `tkinter` module.

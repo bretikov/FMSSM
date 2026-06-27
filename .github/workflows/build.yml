@@ -17,27 +17,25 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
-        run: pip install pyinstaller
+      - run: pip install pyinstaller
 
-      - name: Build application
-        run: |
-          if [[ "$RUNNER_OS" == "macOS" ]]; then
-            pyinstaller --windowed --name fmssm_gui fmssm_gui.py
-          else
-            pyinstaller --onefile --windowed --name fmssm_gui fmssm_gui.py
-          fi
+      # ✅ Windows build
+      - name: Build Windows
+        if: runner.os == 'Windows'
+        run: pyinstaller --onefile --windowed --name fmssm_gui fmssm_gui.py
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      # ✅ macOS build (.app!)
+      - name: Build macOS
+        if: runner.os == 'macOS'
+        run: pyinstaller --windowed --name fmssm_gui fmssm_gui.py
+
+      - uses: actions/upload-artifact@v4
         with:
           name: build-${{ matrix.os }}
           path: dist/*
@@ -47,11 +45,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
 
-      - name: Create Release and upload files
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
           files: |
             build-windows-latest/*

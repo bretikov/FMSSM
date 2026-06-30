@@ -337,7 +337,7 @@ def ask_save_type(root) -> "bool | None":
 
     tk.Button(btn_frame, text="Flash (128 KB, 8 banks, 31 sectors)",
               width=32, command=lambda: choose(True)).pack(pady=3)
-    tk.Button(btn_frame, text="SRAM (32 KB, 8 banks, 7 sectors)",
+    tk.Button(btn_frame, text="SRAM (32 KB, 2 banks, 7 sectors)",
               width=32, command=lambda: choose(False)).pack(pady=3)
     tk.Button(btn_frame, text="Cancel", width=32,
               command=lambda: choose(None)).pack(pady=(8, 0))
